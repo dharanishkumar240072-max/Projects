@@ -1,0 +1,6 @@
+*.class
+*.bat
+README.md
+Dockerfile
+.git
+.gitignore

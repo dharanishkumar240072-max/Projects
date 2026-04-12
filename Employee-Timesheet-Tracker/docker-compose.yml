@@ -1,0 +1,7 @@
+services:
+  timesheet-app:
+    build: .
+    ports:
+      - "8080:8080"
+    container_name: employee-timesheet-tracker
+    restart: unless-stopped
