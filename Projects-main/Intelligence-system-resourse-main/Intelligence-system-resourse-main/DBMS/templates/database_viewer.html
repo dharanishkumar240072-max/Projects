@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live MySQL Database Viewer</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Courier New', monospace; background: #1a1a1a; color: #00ff00; padding: 20px; }
+        .header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #00ff00; padding-bottom: 10px; }
+        .status { display: flex; justify-content: space-between; margin-bottom: 20px; }
+        .status div { background: #333; padding: 10px; border-radius: 5px; }
+        table { width: 100%; border-collapse: collapse; background: #222; }
+        th, td { border: 1px solid #00ff00; padding: 8px; text-align: left; }
+        th { background: #333; color: #00ff00; }
+        tr:nth-child(even) { background: #2a2a2a; }
+        .live { color: #00ff00; font-weight: bold; }
+        .recent { color: #ffff00; }
+        .old { color: #ff6666; }
+        .controls { margin: 20px 0; text-align: center; }
+        button { background: #00ff00; color: #000; border: none; padding: 10px 20px; margin: 5px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #00cc00; }
+        .stop { background: #ff0000; color: white; }
+        .refresh-rate { color: #ffff00; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔴 LIVE MySQL Database Viewer</h1>
+        <p>Auto-refreshing OS data from database</p>
+    </div>
+
+    <div class="status">
+        <div>Status: <span id="status" class="live">RUNNING</span></div>
+        <div>Last Update: <span id="lastUpdate">--:--:--</span></div>
+        <div>Total Records: <span id="totalRecords">0</span></div>
+        <div>Refresh Rate: <span id="refreshRate" class="refresh-rate">2 seconds</span></div>
+    </div>
+
+    <div class="controls">
+        <button onclick="startAutoRefresh()">▶️ START</button>
+        <button onclick="stopAutoRefresh()" class="stop">⏹️ STOP</button>
+        <button onclick="changeRefreshRate(1000)">1 sec</button>
+        <button onclick="changeRefreshRate(2000)">2 sec</button>
+        <button onclick="changeRefreshRate(5000)">5 sec</button>
+        <button onclick="refreshNow()">🔄 REFRESH NOW</button>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Timestamp</th>
+                <th>CPU %</th>
+                <th>Memory %</th>
+                <th>Disk %</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody id="dataTable">
+            <tr><td colspan="6">Loading data...</td></tr>
+        </tbody>
+    </table>
+
+    <script>
+        let refreshInterval;
+        let refreshRate = 2000; // 2 seconds default
+        let isRunning = false;
+
+        function startAutoRefresh() {
+            if (isRunning) return;
+            
+            isRunning = true;
+            document.getElementById('status').textContent = 'RUNNING';
+            document.getElementById('status').className = 'live';
+            
+            refreshData(); // Initial load
+            refreshInterval = setInterval(refreshData, refreshRate);
+        }
+
+        function stopAutoRefresh() {
+            if (!isRunning) return;
+            
+            isRunning = false;
+            clearInterval(refreshInterval);
+            document.getElementById('status').textContent = 'STOPPED';
+            document.getElementById('status').className = 'old';
+        }
+
+        function changeRefreshRate(rate) {
+            refreshRate = rate;
+            document.getElementById('refreshRate').textContent = (rate / 1000) + ' seconds';
+            
+            if (isRunning) {
+                stopAutoRefresh();
+                startAutoRefresh();
+            }
+        }
+
+        function refreshNow() {
+            refreshData();
+        }
+
+        async function refreshData() {
+            try {
+                const response = await fetch('/api/database-view');
+                const data = await response.json();
+                
+                if (data.error) {
+                    document.getElementById('dataTable').innerHTML = 
+                        '<tr><td colspan="6">Error: ' + data.error + '</td></tr>';
+                    return;
+                }
+                
+                // Update status
+                document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+                document.getElementById('totalRecords').textContent = data.total || 0;
+                
+                // Update table
+                const tableBody = document.getElementById('dataTable');
+                tableBody.innerHTML = '';
+                
+                if (data.records && data.records.length > 0) {
+                    data.records.forEach(record => {
+                        const row = document.createElement('tr');
+                        
+                        // Determine status based on timestamp
+                        const recordTime = new Date(record.timestamp);
+                        const now = new Date();
+                        const secondsAgo = (now - recordTime) / 1000;
+                        
+                        let statusClass = 'live';
+                        let statusText = '🟢 LIVE';
+                        
+                        if (secondsAgo > 10) {
+                            statusClass = 'recent';
+                            statusText = '🟡 RECENT';
+                        }
+                        if (secondsAgo > 30) {
+                            statusClass = 'old';
+                            statusText = '🔴 OLD';
+                        }
+                        
+                        row.innerHTML = `
+                            <td>${record.id}</td>
+                            <td>${recordTime.toLocaleTimeString()}</td>
+                            <td>${record.cpu_percent.toFixed(1)}%</td>
+                            <td>${record.memory_percent.toFixed(1)}%</td>
+                            <td>${record.disk_percent.toFixed(1)}%</td>
+                            <td class="${statusClass}">${statusText}</td>
+                        `;
+                        
+                        tableBody.appendChild(row);
+                    });
+                } else {
+                    tableBody.innerHTML = '<tr><td colspan="6">No data available</td></tr>';
+                }
+                
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                document.getElementById('dataTable').innerHTML = 
+                    '<tr><td colspan="6">Connection error: ' + error.message + '</td></tr>';
+            }
+        }
+
+        // Start auto-refresh when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            startAutoRefresh();
+        });
+
+        // Stop auto-refresh when page is closed
+        window.addEventListener('beforeunload', function() {
+            stopAutoRefresh();
+        });
+    </script>
+</body>
+</html>
